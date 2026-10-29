@@ -39,7 +39,7 @@ describe("사전 확인", () => {
       "동물"
     );
 
-    expect(answer).toEqual({ status: "found", meaning: "사람이 아닌 생물" });
+    expect(answer).toEqual({ status: "found", meanings: ["사람이 아닌 생물"] });
   });
 
   test("명사, 단어, 정확히 일치 조건으로 JSON을 요청한다", async () => {
@@ -108,7 +108,7 @@ describe("사전 확인", () => {
         )
       )) as typeof fetch)("동물");
 
-    expect(answer).toEqual({ status: "found", meaning: "첫 번째 일반어 뜻" });
+    expect(answer).toEqual({ status: "found", meanings: ["첫 번째 일반어 뜻", "두 번째 일반어 뜻"] });
   });
 
   test("뜻이 하나뿐이어도, 여러 개여도 첫 번째 뜻만 쓴다", async () => {
@@ -122,7 +122,7 @@ describe("사전 확인", () => {
         )
       )) as typeof fetch)("사과");
 
-    expect(answer).toEqual({ status: "found", meaning: "첫째 뜻" });
+    expect(answer).toEqual({ status: "found", meanings: ["첫째 뜻"] });
   });
 
   test("표제어의 붙임표와 어깨 기호는 무시하고 비교한다", async () => {
@@ -131,7 +131,7 @@ describe("사전 확인", () => {
       "소방관"
     );
 
-    expect(answer).toEqual({ status: "found", meaning: "불을 끄는 사람" });
+    expect(answer).toEqual({ status: "found", meanings: ["불을 끄는 사람"] });
   });
 
   test("한글 두 글자 이상이 아니면 사전을 부르지 않고 인정하지 않는다", async () => {
@@ -203,7 +203,7 @@ describe("연결 실패", () => {
     expect(await check("동물")).toEqual({ status: "failed" });
     expect(await check("동물")).toEqual({
       status: "found",
-      meaning: "사람이 아닌 생물",
+      meanings: ["사람이 아닌 생물"],
     });
   });
 });
@@ -218,7 +218,7 @@ describe("확인 결과 기억", () => {
     await check("동물");
     const second = await check("동물");
 
-    expect(second).toEqual({ status: "found", meaning: "사람이 아닌 생물" });
+    expect(second).toEqual({ status: "found", meanings: ["사람이 아닌 생물"] });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -243,7 +243,7 @@ describe("다른 표기를 가리키는 뜻풀이", () => {
       item("사자", sense("일반어", "고양잇과의 맹수")),
     ])("사자");
 
-    expect(answer).toEqual({ status: "found", meaning: "고양잇과의 맹수" });
+    expect(answer).toEqual({ status: "found", meanings: ["고양잇과의 맹수"] });
   });
 
   test("한 항목 안에서도 참조 뜻은 건너뛰고 다음 뜻을 쓴다", async () => {
@@ -254,7 +254,7 @@ describe("다른 표기를 가리키는 뜻풀이", () => {
       ]),
     ])("사자");
 
-    expect(answer).toEqual({ status: "found", meaning: "고양잇과의 맹수" });
+    expect(answer).toEqual({ status: "found", meanings: ["고양잇과의 맹수"] });
   });
 
   test("참조 항목뿐이면 표준 표기가 아닌 것으로 보고 인정하지 않는다", async () => {
@@ -263,5 +263,45 @@ describe("다른 표기를 가리키는 뜻풀이", () => {
     );
 
     expect(answer).toEqual({ status: "not-found" });
+  });
+});
+
+describe("철자가 같은 단어의 여러 뜻", () => {
+  const check = (items: object[]) =>
+    checkerWith((async () => reply(result(...items))) as typeof fetch);
+
+  test("뜻은 최대 3개까지만 순서대로 모은다", async () => {
+    const answer = await check([
+      item("사자", sense("일반어", "첫째")),
+      item("사자", sense("일반어", "둘째")),
+      item("사자", sense("일반어", "셋째")),
+      item("사자", sense("일반어", "넷째")),
+    ])("사자");
+
+    expect(answer).toEqual({ status: "found", meanings: ["첫째", "둘째", "셋째"] });
+  });
+
+  test("항목마다 첫 번째 뜻만 쓰고, 같은 뜻풀이는 한 번만 넣는다", async () => {
+    const answer = await check([
+      item("사자", [sense("일반어", "첫째"), sense("일반어", "같은 항목의 둘째")]),
+      item("사자", sense("일반어", "첫째")),
+      item("사자", sense("일반어", "다른 항목의 둘째")),
+    ])("사자");
+
+    expect(answer).toEqual({
+      status: "found",
+      meanings: ["첫째", "다른 항목의 둘째"],
+    });
+  });
+
+  test("참조 항목, 일반어가 아닌 항목, 다른 글자 항목은 건너뛴다", async () => {
+    const answer = await check([
+      item("사자", sense("일반어", "→ 쇄자.")),
+      item("사자", sense("지역어", "사투리 뜻")),
+      item("사자성어", sense("일반어", "다른 단어의 뜻")),
+      item("사자", sense("일반어", "고양잇과의 맹수")),
+    ])("사자");
+
+    expect(answer).toEqual({ status: "found", meanings: ["고양잇과의 맹수"] });
   });
 });

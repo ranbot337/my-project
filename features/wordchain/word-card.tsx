@@ -18,9 +18,23 @@ export function WordCard({ turn }: { turn: Turn }) {
         <p className="font-heading text-4xl font-semibold tracking-tight">
           {entry.word}
         </p>
-        <p className="text-xl leading-relaxed text-balance">
-          뜻: {entry.meaning}
-        </p>
+        {entry.meanings && entry.meanings.length > 1 ? (
+          <div className="flex flex-col gap-2 text-xl leading-relaxed">
+            <p>뜻이 여러 개예요</p>
+            <ol className="flex flex-col gap-2 text-left">
+              {entry.meanings.map((meaning, index) => (
+                <li key={index} className="flex gap-2">
+                  <span aria-hidden="true">{index + 1}.</span>
+                  <span>{meaning}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : (
+          <p className="text-xl leading-relaxed text-balance">
+            뜻: {entry.meaning}
+          </p>
+        )}
         {entry.example ? (
           <p className="text-lg leading-relaxed text-balance text-muted-foreground">
             예문: {entry.example}

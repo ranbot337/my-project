@@ -15,8 +15,14 @@ export async function lookupWord(word: string): Promise<LookupResult> {
 
     const body = await response.json();
     if (body?.status === "not-found") return { status: "not-found" };
-    if (body?.status === "found" && typeof body.meaning === "string") {
-      return { status: "found", meaning: body.meaning };
+    const meanings: unknown = body?.meanings;
+    if (
+      body?.status === "found" &&
+      Array.isArray(meanings) &&
+      meanings.length > 0 &&
+      meanings.every((m) => typeof m === "string" && m !== "")
+    ) {
+      return { status: "found", meanings };
     }
     return FAILED;
   } catch {

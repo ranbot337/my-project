@@ -43,7 +43,7 @@ describe("사전 확인 경로", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       status: "found",
-      meaning: "사람이 아닌 생물",
+      meanings: ["사람이 아닌 생물"],
     });
     // 사전 서버로 가는 요청에는 키가 있지만, 브라우저로 가는 응답에는 없다.
     const sent = String((fetchMock.mock.calls[0] as unknown[])[0]);

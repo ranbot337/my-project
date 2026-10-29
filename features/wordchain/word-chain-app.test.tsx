@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
@@ -190,7 +190,7 @@ describe("사전으로 단어 확인", () => {
     start(words, "하늘", lookup.lookup);
 
     await say("사자");
-    await lookup.finish({ status: "found", meaning: "고양잇과의 맹수" });
+    await lookup.finish({ status: "found", meanings: ["고양잇과의 맹수"] });
 
     const card = screen.getByTestId("word-card");
     expect(card).toHaveTextContent("📖");
@@ -202,7 +202,7 @@ describe("사전으로 단어 확인", () => {
   });
 
   test("사전 단어 뒤에는 AI가 단어장 단어로 이어 간다", async () => {
-    start(words, "하늘", async () => ({ status: "found", meaning: "뜻" }));
+    start(words, "하늘", async () => ({ status: "found", meanings: ["뜻"] }));
 
     await say("사자");
     wait(AI_DELAY);
@@ -256,7 +256,7 @@ describe("사전으로 단어 확인", () => {
     fireEvent.click(screen.getByRole("button", { name: "게임 다시 하기" }));
     expect(screen.getByText("게임을 그만뒀어요")).toBeInTheDocument();
 
-    await lookup.finish({ status: "found", meaning: "뜻" });
+    await lookup.finish({ status: "found", meanings: ["뜻"] });
 
     expect(screen.getByText("게임을 그만뒀어요")).toBeInTheDocument();
     expect(screen.queryAllByTestId("result-word")).toHaveLength(0);
@@ -264,7 +264,7 @@ describe("사전으로 단어 확인", () => {
   });
 
   test("사전 단어가 끝장단어이면 그 즉시 이기고 결과 화면에도 📖로 나온다", async () => {
-    start(words, "하늘", async () => ({ status: "found", meaning: "사전 뜻" }));
+    start(words, "하늘", async () => ({ status: "found", meanings: ["사전 뜻"] }));
 
     await say("사과");
     wait(AI_DELAY);
@@ -418,5 +418,53 @@ describe("판의 끝", () => {
     expect(screen.getByText("0승 1패")).toBeInTheDocument();
     expect(screen.getByText("남은 시간 30초")).toBeInTheDocument();
     expect(screen.queryByTestId("word-card")).not.toBeInTheDocument();
+  });
+});
+
+describe("철자가 같은 단어의 여러 뜻", () => {
+  const words = bankOf("사과", "과자", "자전거", "거북이");
+
+  test("뜻이 여러 개이면 번호를 붙여 모두 보여 준다", async () => {
+    start(words, "하늘", async () => ({
+      status: "found",
+      meanings: ["첫째 뜻풀이", "둘째 뜻풀이", "셋째 뜻풀이"],
+    }));
+
+    await say("사자");
+
+    const card = screen.getByTestId("word-card");
+    const items = within(card).getAllByRole("listitem");
+    expect(items).toHaveLength(3);
+    expect(items[0]).toHaveTextContent("첫째 뜻풀이");
+    expect(items[2]).toHaveTextContent("셋째 뜻풀이");
+    expect(card).toHaveTextContent("1.");
+    expect(card).toHaveTextContent("3.");
+  });
+
+  test("뜻이 하나이면 번호 없이 '뜻:' 한 줄로 보여 준다", async () => {
+    start(words, "하늘", async () => ({
+      status: "found",
+      meanings: ["하나뿐인 뜻"],
+    }));
+
+    await say("사자");
+
+    const card = screen.getByTestId("word-card");
+    expect(card).toHaveTextContent("뜻: 하나뿐인 뜻");
+    expect(within(card).queryAllByRole("listitem")).toHaveLength(0);
+  });
+
+  test("결과 화면에서도 여러 뜻을 번호를 붙여 보여 준다", async () => {
+    start(words, "하늘", async () => ({
+      status: "found",
+      meanings: ["첫째 뜻풀이", "둘째 뜻풀이"],
+    }));
+
+    await say("사자");
+    fireEvent.click(screen.getByRole("button", { name: "게임 다시 하기" }));
+
+    const item = screen.getAllByTestId("result-word")[0];
+    expect(within(item).getAllByRole("listitem")).toHaveLength(2);
+    expect(item).toHaveTextContent("둘째 뜻풀이");
   });
 });

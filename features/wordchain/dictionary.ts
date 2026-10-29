@@ -4,6 +4,7 @@ const ENDPOINT = "https://stdict.korean.go.kr/api/search.do";
 const WORD_PATTERN = /^[가-힣]{2,20}$/;
 const DEFAULT_TIMEOUT_MS = 5000;
 const MAX_CACHED_WORDS = 2000;
+const MAX_MEANINGS = 3;
 
 const NOT_FOUND: LookupResult = { status: "not-found" };
 const FAILED: LookupResult = { status: "failed" };
@@ -28,17 +29,20 @@ const plain = (headword: string) => headword.replace(/[-^]/g, "");
 const isReference = (sense: Sense) =>
   (sense.definition ?? "").trim().startsWith("→");
 
-// 입력한 글자와 정확히 같은 표제어 중, 명사이고 (참조를 뺀) 첫 뜻이 일반어인 첫 항목의 첫 뜻풀이.
-function firstStandardMeaning(word: string, items: Item[]): string | null {
+// 입력한 글자와 정확히 같은 표제어(철자가 같은 단어 포함) 중, 명사이고 (참조를 뺀) 첫 뜻이
+// 일반어인 항목마다 첫 뜻풀이를 순서대로 최대 3개 모은다. 같은 뜻풀이는 한 번만 넣는다.
+function standardMeanings(word: string, items: Item[]): string[] {
+  const meanings: string[] = [];
   for (const item of items) {
+    if (meanings.length >= MAX_MEANINGS) break;
     if (plain(item.word ?? "") !== word) continue;
     if (item.pos !== undefined && item.pos !== "명사") continue;
     const first = asArray(item.sense).filter((s) => !isReference(s))[0];
-    if (first?.type === "일반어" && first.definition) {
-      return first.definition.trim();
-    }
+    if (first?.type !== "일반어" || !first.definition) continue;
+    const meaning = first.definition.trim();
+    if (!meanings.includes(meaning)) meanings.push(meaning);
   }
-  return null;
+  return meanings;
 }
 
 // 표준국어대사전으로 단어가 표준어(명사)인지 확인한다. 서버에서만 쓴다.
@@ -84,13 +88,9 @@ export function createWordChecker(deps: Deps = {}) {
     }
     if (!body || body.error) return FAILED;
 
-    const meaning = firstStandardMeaning(
-      word,
-      asArray(body.channel?.item)
-    );
-    const answer: LookupResult = meaning
-      ? { status: "found", meaning }
-      : NOT_FOUND;
+    const meanings = standardMeanings(word, asArray(body.channel?.item));
+    const answer: LookupResult =
+      meanings.length > 0 ? { status: "found", meanings } : NOT_FOUND;
 
     if (cache.size >= MAX_CACHED_WORDS) cache.clear();
     cache.set(word, answer);

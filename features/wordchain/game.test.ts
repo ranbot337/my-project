@@ -327,13 +327,13 @@ describe("판 중단", () => {
 
 describe("사전 확인", () => {
   const bank = bankOf("사과", "과자", "자전거", "거북이", "두더지");
-  const found = (meaning = "사전의 뜻풀이") =>
-    ({ status: "found", meaning }) as const;
+  const found = (meanings = ["사전의 뜻풀이"]) =>
+    ({ status: "found", meanings }) as const;
   const checking = (word: string, start = createGame(bank)) =>
     submitWord(start, word);
 
   test("사전에서 인정되면 사전 단어로 판에 들어가고 AI 차례가 된다", () => {
-    const game = resolveLookup(checking("사자"), found("사람이 아닌 생물"));
+    const game = resolveLookup(checking("사자"), found(["사람이 아닌 생물"]));
 
     expect(game.status).toBe("ai-turn");
     expect(game.pending).toBeNull();
@@ -344,6 +344,7 @@ describe("사전 확인", () => {
         word: "사자",
         emoji: "📖",
         meaning: "사람이 아닌 생물",
+        meanings: ["사람이 아닌 생물"],
         example: "",
       },
     });
@@ -437,5 +438,18 @@ describe("사전 확인", () => {
     expect(abandoned.status).toBe("abandoned");
     expect(abandoned.pending).toBeNull();
     expect(resolveLookup(abandoned, found())).toBe(abandoned);
+  });
+});
+
+describe("사전 단어의 여러 뜻", () => {
+  test("뜻이 여러 개이면 모두 담고 첫 번째 뜻을 대표 뜻으로 쓴다", () => {
+    const start = createGame(bankOf("사과", "과자", "자전거", "거북이"));
+    const game = resolveLookup(submitWord(start, "사자"), {
+      status: "found",
+      meanings: ["첫째 뜻", "둘째 뜻"],
+    });
+
+    expect(game.turns[0]?.entry.meaning).toBe("첫째 뜻");
+    expect(game.turns[0]?.entry.meanings).toEqual(["첫째 뜻", "둘째 뜻"]);
   });
 });

@@ -79,7 +79,20 @@ export function ResultScreen({ nickname, record, game, onRestart }: Props) {
                       <Badge variant="destructive">AI가 이긴 단어</Badge>
                     ) : null}
                   </p>
-                  <p className="text-lg leading-relaxed">{turn.entry.meaning}</p>
+                  {turn.entry.meanings && turn.entry.meanings.length > 1 ? (
+                    <ol className="flex flex-col gap-1 text-lg leading-relaxed">
+                      {turn.entry.meanings.map((meaning, meaningIndex) => (
+                        <li key={meaningIndex} className="flex gap-2">
+                          <span aria-hidden="true">{meaningIndex + 1}.</span>
+                          <span>{meaning}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="text-lg leading-relaxed">
+                      {turn.entry.meaning}
+                    </p>
+                  )}
                   {turn.entry.example ? (
                     <p className="text-base leading-relaxed text-muted-foreground">
                       {turn.entry.example}

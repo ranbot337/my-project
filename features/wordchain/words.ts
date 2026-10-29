@@ -2,6 +2,8 @@ export type WordEntry = {
   word: string;
   emoji: string;
   meaning: string;
+  // 철자가 같은 단어의 뜻이 여럿일 때(사전 단어) 모든 뜻. meaning은 그중 첫 번째다.
+  meanings?: string[];
   example: string;
 };
 

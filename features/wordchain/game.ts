@@ -22,9 +22,10 @@ export type EndedBy = "chances" | "child-dead-end" | "ai-dead-end" | "gave-up";
 
 export type DueumHint = { from: string; to: string };
 
-// 사전에 물어본 결과. found는 표준어로 인정되었고 첫 뜻풀이가 meaning이다.
+// 사전에 물어본 결과. found는 표준어로 인정되었고, 철자가 같은 단어마다 첫 뜻풀이를
+// 최대 3개까지 순서대로 담는다(1개 이상).
 export type LookupResult =
-  | { status: "found"; meaning: string }
+  | { status: "found"; meanings: string[] }
   | { status: "not-found" }
   | { status: "failed" };
 
@@ -173,7 +174,8 @@ export function resolveLookup(game: Game, result: LookupResult): Game {
   return acceptEntry(game, {
     word: game.pending,
     emoji: DICTIONARY_EMOJI,
-    meaning: result.meaning,
+    meaning: result.meanings[0],
+    meanings: result.meanings,
     example: "",
   });
 }
