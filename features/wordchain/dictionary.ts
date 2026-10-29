@@ -45,6 +45,17 @@ function standardMeanings(word: string, items: Item[]): string[] {
   return meanings;
 }
 
+// JSON이 아닌 응답의 종류와 앞 100자를 진단용 이유로 만든다. 키가 섞여 있으면 가린다.
+function badResponseReason(
+  response: Response,
+  text: string,
+  key: string
+): string {
+  const type = response.headers.get("content-type") ?? "no-content-type";
+  const snippet = text.replaceAll(key, "***").replace(/\s+/g, " ").trim();
+  return `bad-response (${type}): ${snippet.slice(0, 100)}`;
+}
+
 // 사전이 돌려준 오류 코드와 메시지를 진단용 이유로 만든다. 키가 섞여 있으면 가린다.
 function apiErrorReason(error: unknown, key: string): string {
   const { error_code: code, message } = (error ?? {}) as {
@@ -100,12 +111,16 @@ export function createWordChecker(deps: Deps = {}) {
     if (!response.ok) return failed(`http-${response.status}`);
 
     let body: { error?: unknown; channel?: { item?: Item | Item[] } };
+    let text = "";
     try {
-      body = await response.json();
+      text = await response.text();
+      body = JSON.parse(text);
     } catch {
-      return failed("bad-response");
+      return failed(badResponseReason(response, text, key));
     }
-    if (!body || typeof body !== "object") return failed("bad-response");
+    if (!body || typeof body !== "object") {
+      return failed(badResponseReason(response, text, key));
+    }
     if (body.error) return failed(apiErrorReason(body.error, key));
 
     const meanings = standardMeanings(word, asArray(body.channel?.item));
