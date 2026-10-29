@@ -5,5 +5,10 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const word = new URL(request.url).searchParams.get("word") ?? "";
-  return Response.json(await checkWord(word.trim()));
+  const result = await checkWord(word.trim());
+  // 연결 실패는 이유만 서버 로그에 남긴다(인증 키와 요청 주소는 남기지 않는다).
+  if (result.status === "failed") {
+    console.error(`word-check failed: ${result.reason ?? "unknown"}`);
+  }
+  return Response.json(result);
 }

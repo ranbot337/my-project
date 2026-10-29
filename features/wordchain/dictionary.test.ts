@@ -146,26 +146,48 @@ describe("사전 확인", () => {
 });
 
 describe("연결 실패", () => {
-  const failures: Record<string, () => Promise<Response>> = {
-    "HTTP 오류": async () => reply({}, 500),
-    "JSON이 아닌 응답": async () => new Response("<html>점검 중</html>"),
-    "사전의 오류 응답": async () =>
-      reply({ error: { error_code: "020", message: "Unregistered key." } }),
-    "네트워크 오류": async () => {
-      throw new TypeError("fetch failed");
-    },
+  const failures: Record<string, [() => Promise<Response>, string]> = {
+    "HTTP 오류": [async () => reply({}, 500), "http-500"],
+    "JSON이 아닌 응답": [
+      async () => new Response("<html>점검 중</html>"),
+      "bad-response",
+    ],
+    "사전의 오류 응답": [
+      async () =>
+        reply({ error: { error_code: "020", message: "Unregistered key." } }),
+      "api-error-020: Unregistered key.",
+    ],
+    "네트워크 오류": [
+      async () => {
+        throw new TypeError(`fetch failed https://x?key=${KEY}`);
+      },
+      "network-TypeError",
+    ],
   };
 
-  for (const [name, fetchImpl] of Object.entries(failures)) {
-    test(`${name}이면 연결 실패로 알리고 결과에 키가 없다`, async () => {
+  for (const [name, [fetchImpl, reason]] of Object.entries(failures)) {
+    test(`${name}이면 연결 실패와 그 이유를 알리고 결과에 키가 없다`, async () => {
       const answer = await checkerWith(fetchImpl as unknown as typeof fetch)(
         "동물"
       );
 
-      expect(answer).toEqual({ status: "failed" });
+      expect(answer).toEqual({ status: "failed", reason });
       expect(JSON.stringify(answer)).not.toContain(KEY);
     });
   }
+
+  test("사전의 오류 메시지에 키가 들어 있어도 이유에는 가려서 싣는다", async () => {
+    const answer = await checkerWith((async () =>
+      reply({
+        error: { error_code: "020", message: `bad key ${KEY}` },
+      })) as typeof fetch)("동물");
+
+    expect(answer).toEqual({
+      status: "failed",
+      reason: "api-error-020: bad key ***",
+    });
+    expect(JSON.stringify(answer)).not.toContain(KEY);
+  });
 
   test("인증 키가 없으면 사전을 부르지 않고 연결 실패로 알린다", async () => {
     const fetchImpl = vi.fn(async () => reply(result()));
@@ -174,7 +196,7 @@ describe("연결 실패", () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    expect(await check("동물")).toEqual({ status: "failed" });
+    expect(await check("동물")).toEqual({ status: "failed", reason: "no-key" });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -188,7 +210,7 @@ describe("연결 실패", () => {
 
     const answer = await checkerWith(neverAnswers, { timeoutMs: 20 })("동물");
 
-    expect(answer).toEqual({ status: "failed" });
+    expect(answer).toEqual({ status: "failed", reason: "timeout" });
   });
 
   test("실패는 기억하지 않아서 다음에 다시 묻는다", async () => {
@@ -200,7 +222,7 @@ describe("연결 실패", () => {
       );
     const check = checkerWith(fetchImpl as unknown as typeof fetch);
 
-    expect(await check("동물")).toEqual({ status: "failed" });
+    expect(await check("동물")).toMatchObject({ status: "failed" });
     expect(await check("동물")).toEqual({
       status: "found",
       meanings: ["사람이 아닌 생물"],
