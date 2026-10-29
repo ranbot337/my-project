@@ -57,14 +57,23 @@ describe("사전 확인 경로", () => {
         throw new TypeError(`fetch failed https://x?key=${KEY}`);
       })
     );
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const { GET } = await loadRoute();
 
     const response = await GET(ask("동물"));
     const text = await response.text();
 
-    expect(JSON.parse(text)).toEqual({ status: "failed" });
+    expect(JSON.parse(text)).toEqual({
+      status: "failed",
+      reason: "network-TypeError",
+    });
     expect(text).not.toContain(KEY);
     expect([...response.headers.values()].join(" ")).not.toContain(KEY);
+    // 서버 로그에는 실패 이유만 남고 키는 없다.
+    expect(logged).toHaveBeenCalledTimes(1);
+    expect(String(logged.mock.calls[0])).toContain("network-TypeError");
+    expect(String(logged.mock.calls[0])).not.toContain(KEY);
+    logged.mockRestore();
   });
 
   test("단어가 없으면 사전을 부르지 않고 not-found로 답한다", async () => {
@@ -87,7 +96,7 @@ describe("사전 확인 경로", () => {
     const response = await GET(ask("동물"));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: "failed" });
+    expect(await response.json()).toEqual({ status: "failed", reason: "no-key" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -7,7 +7,7 @@ const MAX_CACHED_WORDS = 2000;
 const MAX_MEANINGS = 3;
 
 const NOT_FOUND: LookupResult = { status: "not-found" };
-const FAILED: LookupResult = { status: "failed" };
+const failed = (reason: string): LookupResult => ({ status: "failed", reason });
 
 type Deps = {
   // 지정하지 않으면 환경 변수 STDICT_API_KEY를 쓴다.
@@ -45,6 +45,16 @@ function standardMeanings(word: string, items: Item[]): string[] {
   return meanings;
 }
 
+// 사전이 돌려준 오류 코드와 메시지를 진단용 이유로 만든다. 키가 섞여 있으면 가린다.
+function apiErrorReason(error: unknown, key: string): string {
+  const { error_code: code, message } = (error ?? {}) as {
+    error_code?: unknown;
+    message?: unknown;
+  };
+  const text = `api-error-${code ?? "unknown"}${message ? `: ${message}` : ""}`;
+  return text.replaceAll(key, "***").slice(0, 120);
+}
+
 // 표준국어대사전으로 단어가 표준어(명사)인지 확인한다. 서버에서만 쓴다.
 // 오류 내용에는 요청 주소와 인증 키가 들어갈 수 있어서 결과에 싣지 않는다.
 export function createWordChecker(deps: Deps = {}) {
@@ -54,7 +64,7 @@ export function createWordChecker(deps: Deps = {}) {
     if (!WORD_PATTERN.test(word)) return NOT_FOUND;
 
     const key = deps.key ?? process.env.STDICT_API_KEY ?? "";
-    if (!key) return FAILED;
+    if (!key) return failed("no-key");
 
     const cached = cache.get(word);
     if (cached) return cached;
@@ -75,18 +85,28 @@ export function createWordChecker(deps: Deps = {}) {
       url.searchParams.set(name, value);
     }
 
-    let body: { error?: unknown; channel?: { item?: Item | Item[] } };
+    const signal = AbortSignal.timeout(deps.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    let response: Response;
     try {
-      const response = await (deps.fetchImpl ?? fetch)(url, {
-        signal: AbortSignal.timeout(deps.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+      response = await (deps.fetchImpl ?? fetch)(url, {
+        signal,
         cache: "no-store",
       });
-      if (!response.ok) return FAILED;
+    } catch (error) {
+      // 오류 메시지에는 요청 주소와 키가 들어갈 수 있어서 이름만 쓴다.
+      const name = (error as { name?: string })?.name ?? "Error";
+      return failed(signal.aborted ? "timeout" : `network-${name}`);
+    }
+    if (!response.ok) return failed(`http-${response.status}`);
+
+    let body: { error?: unknown; channel?: { item?: Item | Item[] } };
+    try {
       body = await response.json();
     } catch {
-      return FAILED;
+      return failed("bad-response");
     }
-    if (!body || body.error) return FAILED;
+    if (!body || typeof body !== "object") return failed("bad-response");
+    if (body.error) return failed(apiErrorReason(body.error, key));
 
     const meanings = standardMeanings(word, asArray(body.channel?.item));
     const answer: LookupResult =

@@ -30,7 +30,8 @@ export type DueumHint = { from: string; to: string };
 export type LookupResult =
   | { status: "found"; meanings: string[] }
   | { status: "not-found" }
-  | { status: "failed" };
+  // reason은 서버 로그와 진단용이다(키나 요청 주소는 담지 않는다). 화면에는 보이지 않는다.
+  | { status: "failed"; reason?: string };
 
 export type Game = {
   bank: WordEntry[];
