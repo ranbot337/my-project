@@ -149,8 +149,11 @@ describe("연결 실패", () => {
   const failures: Record<string, [() => Promise<Response>, string]> = {
     "HTTP 오류": [async () => reply({}, 500), "http-500"],
     "JSON이 아닌 응답": [
-      async () => new Response("<html>점검 중</html>"),
-      "bad-response",
+      async () =>
+        new Response("<html>\n  점검 중\n</html>", {
+          headers: { "content-type": "text/html" },
+        }),
+      "bad-response (text/html): <html> 점검 중 </html>",
     ],
     "사전의 오류 응답": [
       async () =>
@@ -187,6 +190,22 @@ describe("연결 실패", () => {
       reason: "api-error-020: bad key ***",
     });
     expect(JSON.stringify(answer)).not.toContain(KEY);
+  });
+
+  test("JSON이 아닌 응답의 앞부분은 100자까지만 싣고 키는 가린다", async () => {
+    const body = `<error>${KEY} ${"가".repeat(300)}</error>`;
+    const answer = await checkerWith((async () =>
+      new Response(body, {
+        headers: { "content-type": "application/xml" },
+      })) as typeof fetch)("동물");
+
+    expect(answer.status).toBe("failed");
+    const reason = (answer as { reason: string }).reason;
+    expect(reason.startsWith("bad-response (application/xml): <error>***")).toBe(
+      true
+    );
+    expect(reason.length).toBeLessThanOrEqual(160);
+    expect(reason).not.toContain(KEY);
   });
 
   test("인증 키가 없으면 사전을 부르지 않고 연결 실패로 알린다", async () => {
