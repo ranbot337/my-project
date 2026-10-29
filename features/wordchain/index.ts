@@ -1,9 +1,14 @@
 export {
   AI_DEAD_END_RATE,
   CHANCES_PER_TURN,
+  HINTS_PER_GAME,
   TURN_SECONDS,
+  canOpenHint,
+  closeHint,
   createGame,
   giveUp,
+  hintList,
+  openHint,
   playAiTurn,
   resolveLookup,
   submitWord,
@@ -14,6 +19,8 @@ export type {
   EndedBy,
   Game,
   GameStatus,
+  HintItem,
+  HintList,
   LookupResult,
   Turn,
 } from "./game";

@@ -7,9 +7,13 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { cn } from "@/lib/utils";
+
 import {
+  closeHint,
   createGame,
   giveUp,
+  openHint,
   playAiTurn,
   resolveLookup,
   submitWord,
@@ -141,12 +145,22 @@ export function WordChainApp({
           apply(nextSession(session, timeOut(session.game)))
         }
         onGiveUp={() => apply(nextSession(session, giveUp(session.game)))}
+        onOpenHint={() => apply(nextSession(session, openHint(session.game)))}
+        onCloseHint={() =>
+          apply(nextSession(session, closeHint(session.game)))
+        }
       />
     );
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-10 sm:py-14">
+    <main
+      className={cn(
+        "mx-auto flex w-full flex-1 flex-col gap-8 px-6 py-10 sm:py-14",
+        // 힌트 도우미가 열려 있으면 화면 폭을 넓혀 옆에 둘 자리를 만든다.
+        session?.game.hintOpen ? "max-w-6xl" : "max-w-2xl"
+      )}
+    >
       {screen}
       <footer className="text-sm leading-relaxed text-muted-foreground">
         사전 뜻풀이 출처:{" "}

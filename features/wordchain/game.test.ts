@@ -2,7 +2,11 @@ import { describe, expect, test } from "vitest";
 
 import {
   createGame,
+  canOpenHint,
+  closeHint,
   giveUp,
+  hintList,
+  openHint,
   playAiTurn,
   resolveLookup,
   submitWord,
@@ -451,5 +455,171 @@ describe("사전 단어의 여러 뜻", () => {
 
     expect(game.turns[0]?.entry.meaning).toBe("첫째 뜻");
     expect(game.turns[0]?.entry.meanings).toEqual(["첫째 뜻", "둘째 뜻"]);
+  });
+});
+
+describe("힌트 도우미 사용 규칙", () => {
+  const bank = bankOf(
+    "사과", "과자", "자전거", "자석", "거북이", "자두", "두더지", "이불"
+  );
+  // 아이가 "사과"를 내고 AI가 "과자"를 낸 아이 차례(이을 글자 '자').
+  const myTurn = () =>
+    playAiTurn(submitWord(createGame(bank), "사과"), firstPick);
+
+  test("새 판은 힌트 3번이 남아 있고 도우미는 닫혀 있다", () => {
+    const game = createGame(bank);
+
+    expect(game.hintsLeft).toBe(3);
+    expect(game.hintOpen).toBe(false);
+  });
+
+  test("첫 단어 차례에는 열 수 없다", () => {
+    const game = createGame(bank);
+
+    expect(canOpenHint(game)).toBe(false);
+    expect(openHint(game)).toBe(game);
+  });
+
+  test("AI 차례와 사전 확인 중에는 열 수 없다", () => {
+    const aiTurn = submitWord(createGame(bank), "사과");
+    expect(aiTurn.status).toBe("ai-turn");
+    expect(openHint(aiTurn)).toBe(aiTurn);
+
+    // "자라"는 단어장에 없어 사전 확인을 기다린다.
+    const checking = submitWord(myTurn(), "자라");
+    expect(checking.status).toBe("checking");
+    expect(openHint(checking)).toBe(checking);
+  });
+
+  test("아이 차례에 열면 도우미가 열리고 남은 횟수가 1 줄어든다", () => {
+    const game = openHint(myTurn());
+
+    expect(game.hintOpen).toBe(true);
+    expect(game.hintsLeft).toBe(2);
+  });
+
+  test("같은 차례에서 닫았다가 다시 열어도 남은 횟수는 그대로다", () => {
+    const opened = openHint(myTurn());
+    const closed = closeHint(opened);
+    expect(closed.hintOpen).toBe(false);
+    expect(canOpenHint(closed)).toBe(true);
+
+    const reopened = openHint(closed);
+
+    expect(reopened.hintOpen).toBe(true);
+    expect(reopened.hintsLeft).toBe(2);
+  });
+
+  test("다음 차례에 다시 열면 1번 더 줄어든다", () => {
+    const opened = openHint(myTurn());
+    const afterChild = submitWord(opened, "자전거");
+    const nextTurn = playAiTurn(afterChild, firstPick);
+    expect(wordsOf(nextTurn).at(-1)).toEqual(["ai", "거북이"]);
+
+    const reopened = openHint(nextTurn);
+
+    expect(reopened.hintsLeft).toBe(1);
+  });
+
+  test("힌트를 모두 썼으면 열 수 없다", () => {
+    const empty = { ...myTurn(), hintsLeft: 0 };
+
+    expect(canOpenHint(empty)).toBe(false);
+    expect(openHint(empty)).toBe(empty);
+  });
+
+  test("이번 차례에 이미 쓴 힌트는 횟수가 0이어도 다시 열 수 있다", () => {
+    const lastHint = { ...myTurn(), hintsLeft: 1 };
+    const closed = closeHint(openHint(lastHint));
+    expect(closed.hintsLeft).toBe(0);
+
+    expect(canOpenHint(closed)).toBe(true);
+    expect(openHint(closed).hintOpen).toBe(true);
+  });
+
+  test("입력을 내면 이을 수 없는 입력이어도 닫힌다", () => {
+    const opened = openHint(myTurn());
+
+    expect(submitWord(opened, "하").hintOpen).toBe(false);
+    expect(submitWord(opened, "자전거").hintOpen).toBe(false);
+  });
+
+  test("빈 입력과 시간 초과는 도우미를 닫지 않는다", () => {
+    const opened = openHint(myTurn());
+
+    expect(submitWord(opened, "  ").hintOpen).toBe(true);
+    expect(timeOut(opened).hintOpen).toBe(true);
+    expect(timeOut(opened).hintsLeft).toBe(2);
+  });
+
+  test("게임 다시 하기와 AI 차례가 되면 닫힌다", () => {
+    const opened = openHint(myTurn());
+
+    expect(giveUp(opened).hintOpen).toBe(false);
+    expect(submitWord(opened, "자전거").hintOpen).toBe(false);
+    expect(
+      playAiTurn(submitWord(opened, "자전거"), firstPick).hintOpen
+    ).toBe(false);
+  });
+});
+
+describe("힌트 도우미 목록", () => {
+  test("이어 갈 수 있는 쓰지 않은 단어장 단어를 끝장단어 먼저, 나머지는 단어장 순서로 보여 준다", () => {
+    const bank = bankOf(
+      "사과", "과자", "자전거", "자석", "거북이", "자두", "두더지"
+    );
+    const game = playAiTurn(submitWord(createGame(bank), "사과"), firstPick);
+
+    const list = hintList(game);
+
+    expect(list.letters).toEqual(["자"]);
+    // "자석"만 끝장단어다(석으로 시작하는 단어가 없다).
+    expect(list.items.map((i) => [i.entry.word, i.deadEnd])).toEqual([
+      ["자석", true],
+      ["자전거", false],
+      ["자두", false],
+    ]);
+  });
+
+  test("두음법칙으로 바뀐 글자로 시작하는 단어도 들어 있다", () => {
+    const bank = bankOf("사자", "자리", "이불", "불꽃", "리본", "본문", "이름");
+    const game = playAiTurn(submitWord(createGame(bank), "사자"), firstPick);
+
+    const list = hintList(game);
+
+    expect(list.letters).toEqual(["리", "이"]);
+    expect(list.items.map((i) => i.entry.word)).toEqual([
+      "이름",
+      "이불",
+      "리본",
+    ]);
+  });
+
+  test("이미 쓴 단어는 목록에 없다", () => {
+    const bank = bankOf("기사", "사기", "기차", "차표");
+    const game = playAiTurn(submitWord(createGame(bank), "기사"), firstPick);
+    expect(wordsOf(game)).toEqual([
+      ["child", "기사"],
+      ["ai", "사기"],
+    ]);
+
+    expect(hintList(game).items.map((i) => i.entry.word)).toEqual(["기차"]);
+  });
+
+  test("전체 12개까지만 보여 준다", () => {
+    const followers = [
+      "자두", "자라", "자리", "자석", "자루", "자몽", "자매",
+      "자막", "자세", "자식", "자연", "자유", "자정", "자주",
+    ];
+    const bank = bankOf("사과", "과자", ...followers);
+    const game = playAiTurn(submitWord(createGame(bank), "사과"), firstPick);
+
+    expect(hintList(game).items).toHaveLength(12);
+  });
+
+  test("이어 갈 단어가 없으면 목록이 비어 있다", () => {
+    const game = createGame(bankOf("사과", "과자"));
+
+    expect(hintList(game).items).toEqual([]);
   });
 });
