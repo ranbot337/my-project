@@ -80,9 +80,11 @@ export function ResultScreen({ nickname, record, game, onRestart }: Props) {
                     ) : null}
                   </p>
                   <p className="text-lg leading-relaxed">{turn.entry.meaning}</p>
-                  <p className="text-base leading-relaxed text-muted-foreground">
-                    {turn.entry.example}
-                  </p>
+                  {turn.entry.example ? (
+                    <p className="text-base leading-relaxed text-muted-foreground">
+                      {turn.entry.example}
+                    </p>
+                  ) : null}
                 </div>
               </li>
             ))}

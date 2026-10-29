@@ -21,9 +21,11 @@ export function WordCard({ turn }: { turn: Turn }) {
         <p className="text-xl leading-relaxed text-balance">
           뜻: {entry.meaning}
         </p>
-        <p className="text-lg leading-relaxed text-balance text-muted-foreground">
-          예문: {entry.example}
-        </p>
+        {entry.example ? (
+          <p className="text-lg leading-relaxed text-balance text-muted-foreground">
+            예문: {entry.example}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

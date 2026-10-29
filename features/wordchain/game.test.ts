@@ -4,6 +4,7 @@ import {
   createGame,
   giveUp,
   playAiTurn,
+  resolveLookup,
   submitWord,
   timeOut,
   type Game,
@@ -62,11 +63,13 @@ describe("이을 수 없는 입력", () => {
     expect(game.turns).toEqual([]);
   });
 
-  test("단어장에 없는 단어는 기회 1번을 쓰고 안내가 나온다", () => {
+  test("단어장에 없는 단어는 기회를 쓰지 않고 사전 확인을 기다린다", () => {
     const game = submitWord(createGame(bankOf("사과", "과자")), "하하");
 
-    expect(game.notice).toBe("사전에 없는 단어예요");
-    expect(game.chances).toBe(3);
+    expect(game.status).toBe("checking");
+    expect(game.pending).toBe("하하");
+    expect(game.chances).toBe(4);
+    expect(game.turns).toEqual([]);
   });
 
   test("첫 단어가 끝장단어이면 다른 단어를 써 달라는 안내가 나온다", () => {
@@ -199,7 +202,7 @@ describe("기회와 시간 초과", () => {
 
   test("이을 수 없는 입력이 3번이면 아직 아이 차례다", () => {
     let game = start();
-    for (const wrong of ["하", "하하", "가가"]) game = submitWord(game, wrong);
+    for (const wrong of ["하", "나", "다"]) game = submitWord(game, wrong);
 
     expect(game.status).toBe("child-turn");
     expect(game.chances).toBe(1);
@@ -207,7 +210,7 @@ describe("기회와 시간 초과", () => {
 
   test("이을 수 없는 입력이 4번이면 아이가 못 이은 것으로 AI가 이긴다", () => {
     let game = start();
-    for (const wrong of ["하", "하하", "가가", "나나"]) {
+    for (const wrong of ["하", "나", "다", "라"]) {
       game = submitWord(game, wrong);
     }
 
@@ -228,7 +231,7 @@ describe("기회와 시간 초과", () => {
     let game = start();
     game = submitWord(game, "하");
     game = timeOut(game);
-    game = submitWord(game, "하하");
+    game = submitWord(game, "나");
     game = timeOut(game);
 
     expect(game.status).toBe("lost");
@@ -237,7 +240,7 @@ describe("기회와 시간 초과", () => {
 
   test("판이 끝난 뒤에는 입력과 시간 초과가 아무것도 바꾸지 않는다", () => {
     let game = start();
-    for (const wrong of ["하", "하하", "가가", "나나"]) {
+    for (const wrong of ["하", "나", "다", "라"]) {
       game = submitWord(game, wrong);
     }
 
@@ -319,5 +322,120 @@ describe("판 중단", () => {
     expect(game.status).toBe("abandoned");
     expect(game.endedBy).toBe("gave-up");
     expect(wordsOf(game)).toEqual([["child", "사과"]]);
+  });
+});
+
+describe("사전 확인", () => {
+  const bank = bankOf("사과", "과자", "자전거", "거북이", "두더지");
+  const found = (meaning = "사전의 뜻풀이") =>
+    ({ status: "found", meaning }) as const;
+  const checking = (word: string, start = createGame(bank)) =>
+    submitWord(start, word);
+
+  test("사전에서 인정되면 사전 단어로 판에 들어가고 AI 차례가 된다", () => {
+    const game = resolveLookup(checking("사자"), found("사람이 아닌 생물"));
+
+    expect(game.status).toBe("ai-turn");
+    expect(game.pending).toBeNull();
+    expect(game.turns).toHaveLength(1);
+    expect(game.turns[0]).toEqual({
+      by: "child",
+      entry: {
+        word: "사자",
+        emoji: "📖",
+        meaning: "사람이 아닌 생물",
+        example: "",
+      },
+    });
+  });
+
+  test("사전에 없으면 안내와 함께 기회 1번을 쓰고 아이 차례로 돌아온다", () => {
+    const game = resolveLookup(checking("하하"), { status: "not-found" });
+
+    expect(game.status).toBe("child-turn");
+    expect(game.pending).toBeNull();
+    expect(game.notice).toBe("사전에 없는 단어예요");
+    expect(game.chances).toBe(3);
+    expect(game.turns).toEqual([]);
+  });
+
+  test("사전에 없는 입력이 4번이면 AI가 이긴다", () => {
+    let game = createGame(bank);
+    for (const word of ["하하", "나나", "다다", "라라"]) {
+      game = resolveLookup(checking(word, game), { status: "not-found" });
+    }
+
+    expect(game.status).toBe("lost");
+    expect(game.endedBy).toBe("chances");
+  });
+
+  test("사전에 연결하지 못하면 기회를 쓰지 않고 다시 입력하라고 안내한다", () => {
+    const game = resolveLookup(checking("하하"), { status: "failed" });
+
+    expect(game.status).toBe("child-turn");
+    expect(game.pending).toBeNull();
+    expect(game.notice).toBe("사전에 연결하지 못했어요. 다시 입력해 주세요");
+    expect(game.chances).toBe(4);
+  });
+
+  test("첫 단어가 사전 단어이고 끝장단어이면 거절되고 기회 1번을 쓴다", () => {
+    // "하하"는 "하"로 시작하는 단어장 단어가 없어 끝장단어다.
+    const game = resolveLookup(checking("하하"), found());
+
+    expect(game.status).toBe("child-turn");
+    expect(game.notice).toBe(
+      "처음부터 끝장단어는 쓸 수 없어요. 다른 단어를 써 주세요"
+    );
+    expect(game.chances).toBe(3);
+    expect(game.turns).toEqual([]);
+  });
+
+  test("판 도중 사전 단어가 끝장단어이면 그 즉시 아이가 이긴다", () => {
+    const afterAi = playAiTurn(submitWord(createGame(bank), "사과"), firstPick);
+    // AI가 "과자"를 낸 뒤 "자하"를 내면 "하"로 시작하는 단어장 단어가 없다.
+    const game = resolveLookup(checking("자하", afterAi), found());
+
+    expect(game.status).toBe("won");
+    expect(game.endedBy).toBe("child-dead-end");
+    expect(wordsOf(game).at(-1)).toEqual(["child", "자하"]);
+  });
+
+  test("앞 단어에 이어지지 않는 입력은 사전을 기다리지 않고 바로 거절한다", () => {
+    const afterAi = playAiTurn(submitWord(createGame(bank), "사과"), firstPick);
+    const game = submitWord(afterAi, "하하");
+
+    expect(game.status).toBe("child-turn");
+    expect(game.notice).toBe("'자'로 시작하는 단어를 써 주세요");
+    expect(game.chances).toBe(3);
+  });
+
+  test("사전에서 인정된 단어도 이미 쓴 단어로 센다", () => {
+    // "사과"로 시작하는 판에서 AI가 "과자"를 낸 뒤, 아이가 "자두"(사전 단어)를 쓴다.
+    const afterAi = playAiTurn(submitWord(createGame(bank), "사과"), firstPick);
+    const afterDictionary = resolveLookup(checking("자두", afterAi), found());
+    expect(afterDictionary.status).toBe("ai-turn");
+
+    const again = submitWord(
+      { ...afterDictionary, status: "child-turn" },
+      "자두"
+    );
+
+    expect(again.notice).toBe("이미 사용한 단어입니다");
+    expect(again.status).toBe("child-turn");
+  });
+
+  test("확인하는 동안에는 입력과 시간 초과가 아무것도 바꾸지 않는다", () => {
+    const game = checking("하하");
+
+    expect(submitWord(game, "사과")).toBe(game);
+    expect(timeOut(game)).toBe(game);
+  });
+
+  test("확인하는 중에 판을 그만두면 늦게 온 사전 결과는 무시한다", () => {
+    const abandoned = giveUp(checking("하하"));
+
+    expect(abandoned.status).toBe("abandoned");
+    expect(abandoned.pending).toBeNull();
+    expect(resolveLookup(abandoned, found())).toBe(abandoned);
   });
 });

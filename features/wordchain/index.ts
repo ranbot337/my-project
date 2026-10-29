@@ -5,10 +5,18 @@ export {
   createGame,
   giveUp,
   playAiTurn,
+  resolveLookup,
   submitWord,
   timeOut,
 } from "./game";
-export type { DueumHint, EndedBy, Game, GameStatus, Turn } from "./game";
+export type {
+  DueumHint,
+  EndedBy,
+  Game,
+  GameStatus,
+  LookupResult,
+  Turn,
+} from "./game";
 export type { WordEntry } from "./words";
 export {
   lastNickname,
@@ -20,3 +28,4 @@ export {
 export type { Result, WinLossRecord } from "./records";
 export { WORDS } from "./words";
 export { WordChainApp } from "./word-chain-app";
+export { lookupWord } from "./lookup-client";

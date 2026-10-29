@@ -20,8 +20,16 @@ type Props = {
 };
 
 // 아이 차례가 시작될 때마다 새로 만들어져(key) 30초부터 센다. 0초가 되면 알리고 다시 시작한다.
-function TurnTimer({ onExpire }: { onExpire: () => void }) {
+// 사전을 확인하는 동안(paused)에는 멈췄다가 이어서 센다.
+function TurnTimer({
+  paused,
+  onExpire,
+}: {
+  paused: boolean;
+  onExpire: () => void;
+}) {
   const [secondsLeft, setSecondsLeft] = useState(TURN_SECONDS);
+  const leftRef = useRef(TURN_SECONDS);
   const onExpireRef = useRef(onExpire);
 
   useEffect(() => {
@@ -29,19 +37,19 @@ function TurnTimer({ onExpire }: { onExpire: () => void }) {
   });
 
   useEffect(() => {
-    let left = TURN_SECONDS;
+    if (paused) return;
     const id = setInterval(() => {
-      left -= 1;
-      if (left <= 0) {
-        left = TURN_SECONDS;
+      leftRef.current -= 1;
+      if (leftRef.current <= 0) {
+        leftRef.current = TURN_SECONDS;
         setSecondsLeft(TURN_SECONDS);
         onExpireRef.current();
       } else {
-        setSecondsLeft(left);
+        setSecondsLeft(leftRef.current);
       }
     }, 1000);
     return () => clearInterval(id);
-  }, []);
+  }, [paused]);
 
   return <span>남은 시간 {secondsLeft}초</span>;
 }
@@ -57,6 +65,7 @@ export function GameScreen({
   const inputRef = useRef<HTMLInputElement>(null);
   const [input, setInput] = useState("");
   const childTurn = game.status === "child-turn";
+  const checking = game.status === "checking";
   const lastTurn = game.turns.at(-1);
 
   useEffect(() => {
@@ -120,7 +129,7 @@ export function GameScreen({
 
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center justify-between gap-4 text-xl font-medium">
-          {childTurn ? (
+          {childTurn || checking ? (
             <>
               <p className="text-2xl">
                 {startLetter
@@ -128,7 +137,11 @@ export function GameScreen({
                   : "아무 글자로나 시작해요"}
               </p>
               <p className="flex items-center gap-4">
-                <TurnTimer key={game.turns.length} onExpire={onTimeout} />
+                <TurnTimer
+                  key={game.turns.length}
+                  paused={checking}
+                  onExpire={onTimeout}
+                />
                 <span>
                   기회 {game.chances}번{" "}
                   <span aria-hidden="true" className="tracking-widest">
@@ -143,6 +156,12 @@ export function GameScreen({
             <p className="text-2xl">AI가 단어를 고르고 있어요…</p>
           )}
         </div>
+
+        {checking ? (
+          <p role="status" className="text-xl text-muted-foreground">
+            사전에서 확인하고 있어요…
+          </p>
+        ) : null}
 
         <form onSubmit={handleSubmit}>
           <FieldGroup className="gap-4">

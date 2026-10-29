@@ -5,10 +5,14 @@ export const TURN_SECONDS = 30;
 // AI가 끝장단어를 쓸 수 있을 때 실제로 쓰는 확률.
 export const AI_DEAD_END_RATE = 0.5;
 
+// 사전에서 확인된 단어에 붙이는 그림. 사전은 단어별 그림을 주지 않는다.
+const DICTIONARY_EMOJI = "📖";
+
 export type Turn = { by: "child" | "ai"; entry: WordEntry };
 
 export type GameStatus =
   | "child-turn"
+  | "checking"
   | "ai-turn"
   | "won"
   | "lost"
@@ -18,6 +22,12 @@ export type EndedBy = "chances" | "child-dead-end" | "ai-dead-end" | "gave-up";
 
 export type DueumHint = { from: string; to: string };
 
+// 사전에 물어본 결과. found는 표준어로 인정되었고 첫 뜻풀이가 meaning이다.
+export type LookupResult =
+  | { status: "found"; meaning: string }
+  | { status: "not-found" }
+  | { status: "failed" };
+
 export type Game = {
   bank: WordEntry[];
   turns: Turn[];
@@ -26,6 +36,8 @@ export type Game = {
   chances: number;
   notice: string | null;
   hint: DueumHint | null;
+  // 단어장에 없어 사전 확인을 기다리는 단어(status가 checking일 때만 있다).
+  pending: string | null;
 };
 
 // 표준 두음법칙: 단어 끝 글자가 앞의 글자이면 뒤의 글자로 시작하는 단어도 이을 수 있다.
@@ -44,6 +56,7 @@ export function createGame(bank: WordEntry[] = WORDS): Game {
     chances: CHANCES_PER_TURN,
     notice: null,
     hint: null,
+    pending: null,
   };
 }
 
@@ -72,7 +85,7 @@ function unusedFollowers(
   );
 }
 
-// 끝장단어: 이 단어 뒤에 이을 수 있는, 아직 쓰지 않은 단어가 하나도 없는 단어.
+// 끝장단어: 이 단어 뒤에 이을 수 있는, 아직 쓰지 않은 단어장 단어가 하나도 없는 단어.
 function isDeadEnd(entry: WordEntry, usedWords: string[], bank: WordEntry[]) {
   return unusedFollowers(entry.word, usedWords, bank).length === 0;
 }
@@ -85,11 +98,35 @@ function hintFor(word: string): DueumHint | null {
 
 function spendChance(game: Game, notice: string): Game {
   const chances = game.chances - 1;
-  if (chances > 0) return { ...game, chances, notice };
-  return { ...game, chances: 0, notice, status: "lost", endedBy: "chances" };
+  const base: Game = { ...game, status: "child-turn", pending: null, notice };
+  if (chances > 0) return { ...base, chances };
+  return { ...base, chances: 0, status: "lost", endedBy: "chances" };
 }
 
 const usedWordsOf = (game: Game) => game.turns.map((turn) => turn.entry.word);
+
+// 이을 수 있는 단어로 확인된 entry를 판에 넣는다. 첫 단어가 끝장단어이면 거절한다.
+function acceptEntry(game: Game, entry: WordEntry): Game {
+  const deadEnd = isDeadEnd(
+    entry,
+    [...usedWordsOf(game), entry.word],
+    game.bank
+  );
+
+  if (game.turns.length === 0 && deadEnd) {
+    return spendChance(
+      game,
+      "처음부터 끝장단어는 쓸 수 없어요. 다른 단어를 써 주세요"
+    );
+  }
+
+  const turns: Turn[] = [...game.turns, { by: "child", entry }];
+  const base: Game = { ...game, turns, pending: null, notice: null, hint: null };
+  if (deadEnd) {
+    return { ...base, status: "won", endedBy: "child-dead-end" };
+  }
+  return { ...base, status: "ai-turn" };
+}
 
 export function submitWord(game: Game, input: string): Game {
   if (game.status !== "child-turn") return game;
@@ -98,43 +135,47 @@ export function submitWord(game: Game, input: string): Game {
   if (word === "") return game;
   if ([...word].length < 2) return spendChance(game, "두 글자 이상 써 주세요");
 
-  const entry = game.bank.find((candidate) => candidate.word === word);
-  if (!entry) return spendChance(game, "사전에 없는 단어예요");
-
-  const used = usedWordsOf(game);
-  if (used.includes(entry.word)) {
+  if (usedWordsOf(game).includes(word)) {
     return spendChance(game, "이미 사용한 단어입니다");
   }
 
   const previous = game.turns.at(-1);
-  const usedWithEntry = [...used, entry.word];
-  const deadEnd = isDeadEnd(entry, usedWithEntry, game.bank);
-
   if (previous) {
     const letters = nextLetters(previous.entry.word);
-    if (!startsWithAny(entry.word, letters)) {
+    if (!startsWithAny(word, letters)) {
       const quoted = letters.map((letter) => `'${letter}'`).join(" 또는 ");
       return spendChance(game, `${quoted}로 시작하는 단어를 써 주세요`);
     }
-  } else if (deadEnd) {
-    return spendChance(
-      game,
-      "처음부터 끝장단어는 쓸 수 없어요. 다른 단어를 써 주세요"
-    );
   }
 
-  const turns: Turn[] = [...game.turns, { by: "child", entry }];
-  if (deadEnd) {
+  const entry = game.bank.find((candidate) => candidate.word === word);
+  if (entry) return acceptEntry(game, entry);
+
+  return { ...game, status: "checking", pending: word, notice: null };
+}
+
+// 사전에 물어본 결과를 반영한다. 확인을 기다리는 중이 아니면 아무것도 바꾸지 않는다.
+export function resolveLookup(game: Game, result: LookupResult): Game {
+  if (game.status !== "checking" || game.pending === null) return game;
+
+  if (result.status === "failed") {
     return {
       ...game,
-      turns,
-      status: "won",
-      endedBy: "child-dead-end",
-      notice: null,
-      hint: null,
+      status: "child-turn",
+      pending: null,
+      notice: "사전에 연결하지 못했어요. 다시 입력해 주세요",
     };
   }
-  return { ...game, turns, status: "ai-turn", notice: null, hint: null };
+  if (result.status === "not-found") {
+    return spendChance(game, "사전에 없는 단어예요");
+  }
+
+  return acceptEntry(game, {
+    word: game.pending,
+    emoji: DICTIONARY_EMOJI,
+    meaning: result.meaning,
+    example: "",
+  });
 }
 
 export function timeOut(game: Game): Game {
@@ -184,5 +225,11 @@ export function playAiTurn(game: Game, random: () => number): Game {
 
 export function giveUp(game: Game): Game {
   if (game.status === "won" || game.status === "lost") return game;
-  return { ...game, status: "abandoned", endedBy: "gave-up", hint: null };
+  return {
+    ...game,
+    status: "abandoned",
+    endedBy: "gave-up",
+    pending: null,
+    hint: null,
+  };
 }
