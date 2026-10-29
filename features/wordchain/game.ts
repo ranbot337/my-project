@@ -2,6 +2,9 @@ import { WORDS, type WordEntry } from "./words";
 
 export const CHANCES_PER_TURN = 4;
 export const TURN_SECONDS = 30;
+// 한 판에 힌트 도우미를 열 수 있는 횟수와, 도우미 목록에 보여 주는 단어 수의 상한.
+export const HINTS_PER_GAME = 3;
+const MAX_HINT_ITEMS = 12;
 // AI가 끝장단어를 쓸 수 있을 때 실제로 쓰는 확률.
 export const AI_DEAD_END_RATE = 0.5;
 
@@ -39,7 +42,14 @@ export type Game = {
   hint: DueumHint | null;
   // 단어장에 없어 사전 확인을 기다리는 단어(status가 checking일 때만 있다).
   pending: string | null;
+  // 힌트 도우미: 남은 횟수, 열려 있는지, 힌트를 쓴 차례(그때의 turns.length).
+  hintsLeft: number;
+  hintOpen: boolean;
+  hintTurn: number | null;
 };
+
+export type HintItem = { entry: WordEntry; deadEnd: boolean };
+export type HintList = { letters: string[]; items: HintItem[] };
 
 // 표준 두음법칙: 단어 끝 글자가 앞의 글자이면 뒤의 글자로 시작하는 단어도 이을 수 있다.
 const DUEUM: Record<string, string> = {
@@ -58,6 +68,9 @@ export function createGame(bank: WordEntry[] = WORDS): Game {
     notice: null,
     hint: null,
     pending: null,
+    hintsLeft: HINTS_PER_GAME,
+    hintOpen: false,
+    hintTurn: null,
   };
 }
 
@@ -101,7 +114,13 @@ function spendChance(game: Game, notice: string): Game {
   const chances = game.chances - 1;
   const base: Game = { ...game, status: "child-turn", pending: null, notice };
   if (chances > 0) return { ...base, chances };
-  return { ...base, chances: 0, status: "lost", endedBy: "chances" };
+  return {
+    ...base,
+    chances: 0,
+    status: "lost",
+    endedBy: "chances",
+    hintOpen: false,
+  };
 }
 
 const usedWordsOf = (game: Game) => game.turns.map((turn) => turn.entry.word);
@@ -129,7 +148,13 @@ function acceptEntry(game: Game, entry: WordEntry): Game {
   return { ...base, status: "ai-turn" };
 }
 
+// 입력을 내면(이을 수 없는 입력이어도) 힌트 도우미가 닫힌다. 빈 입력은 무시한다.
 export function submitWord(game: Game, input: string): Game {
+  const result = submitInput(game, input);
+  return result === game ? game : { ...result, hintOpen: false };
+}
+
+function submitInput(game: Game, input: string): Game {
   if (game.status !== "child-turn") return game;
 
   const word = input.trim();
@@ -233,5 +258,54 @@ export function giveUp(game: Game): Game {
     endedBy: "gave-up",
     pending: null,
     hint: null,
+    hintOpen: false,
+  };
+}
+
+// 힌트 도우미는 아이 차례이고 첫 단어가 아닐 때만 열 수 있다. 남은 횟수가 있거나
+// 이번 차례에 이미 쓴 힌트이면(다시 열기) 열 수 있다.
+export function canOpenHint(game: Game): boolean {
+  if (game.status !== "child-turn" || game.turns.length === 0) return false;
+  return (
+    game.hintOpen ||
+    game.hintTurn === game.turns.length ||
+    game.hintsLeft > 0
+  );
+}
+
+export function openHint(game: Game): Game {
+  if (!canOpenHint(game) || game.hintOpen) return game;
+  if (game.hintTurn === game.turns.length) return { ...game, hintOpen: true };
+  return {
+    ...game,
+    hintOpen: true,
+    hintsLeft: game.hintsLeft - 1,
+    hintTurn: game.turns.length,
+  };
+}
+
+export function closeHint(game: Game): Game {
+  return game.hintOpen ? { ...game, hintOpen: false } : game;
+}
+
+// 도우미 목록: 이어 갈 수 있는 쓰지 않은 단어장 단어. 끝장단어를 먼저, 나머지는
+// 단어장 순서로 놓고 전체 12개까지만 보여 준다.
+export function hintList(game: Game): HintList {
+  const previous = game.turns.at(-1);
+  if (!previous) return { letters: [], items: [] };
+
+  const used = usedWordsOf(game);
+  const items = unusedFollowers(previous.entry.word, used, game.bank).map(
+    (entry) => ({
+      entry,
+      deadEnd: isDeadEnd(entry, [...used, entry.word], game.bank),
+    })
+  );
+  return {
+    letters: nextLetters(previous.entry.word),
+    items: [
+      ...items.filter((item) => item.deadEnd),
+      ...items.filter((item) => !item.deadEnd),
+    ].slice(0, MAX_HINT_ITEMS),
   };
 }

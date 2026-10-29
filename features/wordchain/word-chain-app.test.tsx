@@ -468,3 +468,164 @@ describe("철자가 같은 단어의 여러 뜻", () => {
     expect(item).toHaveTextContent("둘째 뜻풀이");
   });
 });
+
+describe("힌트 도우미", () => {
+  // 아이가 "사과"를 내고 AI가 "과자"를 낸 아이 차례(이을 글자 '자')에서 시작한다.
+  const hintWords = bankOf("사과", "과자", "자전거", "자석", "거북이");
+
+  async function toMyTurn() {
+    start(hintWords);
+    await say("사과");
+    wait(AI_DELAY);
+  }
+
+  const hintButton = () => screen.getByRole("button", { name: /^힌트/ });
+  const helper = () => screen.getByRole("complementary", { name: "힌트 도우미" });
+
+  test("첫 단어 차례와 AI 차례에는 힌트 버튼을 누를 수 없다", async () => {
+    start(hintWords);
+    expect(hintButton()).toBeDisabled();
+    expect(hintButton()).toHaveTextContent("힌트 3번 남음");
+
+    await say("사과");
+    expect(hintButton()).toBeDisabled();
+
+    wait(AI_DELAY);
+    expect(hintButton()).toBeEnabled();
+  });
+
+  test("열면 도우미가 열리고 남은 횟수가 줄어든다", async () => {
+    await toMyTurn();
+
+    fireEvent.click(hintButton());
+
+    expect(within(helper()).getByText("남은 힌트 2번")).toBeInTheDocument();
+    expect(within(helper()).getByText("'자'로 시작")).toBeInTheDocument();
+  });
+
+  test("끝장단어를 먼저 표시와 함께 보여 주고 나머지가 뒤따른다", async () => {
+    await toMyTurn();
+
+    fireEvent.click(hintButton());
+
+    const items = within(helper()).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("자석");
+    expect(items[0]).toHaveTextContent("🔥 끝장단어");
+    expect(items[1]).toHaveTextContent("자전거");
+    expect(items[1]).not.toHaveTextContent("끝장단어");
+  });
+
+  test("단어를 누르면 도우미 안에 이모지, 뜻, 예문이 보인다", async () => {
+    await toMyTurn();
+    fireEvent.click(hintButton());
+    expect(
+      within(helper()).getByText("단어를 눌러 뜻을 보세요")
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(helper()).getByRole("button", { name: /자석/ }));
+    expect(helper()).toHaveTextContent("뜻풀이:자석");
+    expect(helper()).toHaveTextContent("예문:자석");
+
+    fireEvent.click(within(helper()).getByRole("button", { name: /자전거/ }));
+    expect(helper()).toHaveTextContent("뜻풀이:자전거");
+    expect(helper()).not.toHaveTextContent("뜻풀이:자석");
+  });
+
+  test("'이 단어 쓰기'는 입력 칸을 채우고 포커스를 옮기지만 제출하지는 않는다", async () => {
+    await toMyTurn();
+    fireEvent.click(hintButton());
+    fireEvent.click(within(helper()).getByRole("button", { name: /자전거/ }));
+
+    fireEvent.click(
+      within(helper()).getByRole("button", { name: "이 단어 쓰기" })
+    );
+
+    expect(screen.getByLabelText("단어 입력")).toHaveValue("자전거");
+    expect(screen.getByLabelText("단어 입력")).toHaveFocus();
+    expect(screen.getByLabelText("지금까지 나온 단어")).toHaveTextContent(
+      "사과 → 과자"
+    );
+    expect(helper()).toBeInTheDocument();
+  });
+
+  test("열려 있는 동안에도 남은 시간은 계속 흐른다", async () => {
+    await toMyTurn();
+    expect(screen.getByText("남은 시간 30초")).toBeInTheDocument();
+
+    fireEvent.click(hintButton());
+    wait(5_000);
+
+    expect(screen.getByText("남은 시간 25초")).toBeInTheDocument();
+    expect(helper()).toBeInTheDocument();
+  });
+
+  test("입력을 내면 닫히고, 같은 차례에 다시 열어도 횟수는 그대로다", async () => {
+    await toMyTurn();
+    fireEvent.click(hintButton());
+
+    await say("하");
+    expect(
+      screen.queryByRole("complementary", { name: "힌트 도우미" })
+    ).not.toBeInTheDocument();
+    expect(hintButton()).toHaveTextContent("힌트 2번 남음");
+
+    fireEvent.click(hintButton());
+    expect(within(helper()).getByText("남은 힌트 2번")).toBeInTheDocument();
+  });
+
+  test("닫기 버튼으로 닫을 수 있다", async () => {
+    await toMyTurn();
+    fireEvent.click(hintButton());
+
+    fireEvent.click(within(helper()).getByRole("button", { name: "닫기" }));
+
+    expect(
+      screen.queryByRole("complementary", { name: "힌트 도우미" })
+    ).not.toBeInTheDocument();
+  });
+
+  test("도우미에서 고른 끝장단어를 내면 그 즉시 이긴다", async () => {
+    await toMyTurn();
+    fireEvent.click(hintButton());
+    fireEvent.click(within(helper()).getByRole("button", { name: /자석/ }));
+    fireEvent.click(
+      within(helper()).getByRole("button", { name: "이 단어 쓰기" })
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "입력" }));
+    });
+
+    expect(screen.getByText("내가 이겼어요!")).toBeInTheDocument();
+    expect(loadRecord("하늘")).toEqual({ wins: 1, losses: 0 });
+  });
+
+  test("힌트를 모두 쓰면 버튼을 누를 수 없고 안내가 나온다", async () => {
+    const chain = bankOf(
+      "가나", "나다", "다마", "마바", "바사", "사아", "아자", "자카", "카타", "타파"
+    );
+    start(chain);
+    await say("가나");
+    wait(AI_DELAY);
+
+    for (const mine of ["다마", "바사", "아자"]) {
+      fireEvent.click(hintButton());
+      await say(mine);
+      wait(AI_DELAY);
+    }
+
+    expect(hintButton()).toBeDisabled();
+    expect(hintButton()).toHaveTextContent("힌트 0번 남음");
+    expect(screen.getByText("힌트를 모두 썼어요")).toBeInTheDocument();
+  });
+
+  test("새 판은 힌트 3번으로 시작한다", async () => {
+    await toMyTurn();
+    fireEvent.click(hintButton());
+    fireEvent.click(screen.getByRole("button", { name: "게임 다시 하기" }));
+    fireEvent.click(screen.getByRole("button", { name: "새 판 시작" }));
+
+    expect(hintButton()).toHaveTextContent("힌트 3번 남음");
+  });
+});
